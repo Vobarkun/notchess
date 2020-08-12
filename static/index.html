@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html>
+
+    <head>
+        <meta charset="utf-8">
+        <title>Fairy Chess</title>        
+        <link rel="stylesheet" href="static/assets/3d.css">
+        <link rel="stylesheet" href="static/assets/chessground.css">
+        <link rel="stylesheet" href="static/assets/theme.css">
+        <style>
+            #ground1 {
+                width: 80vh;
+                height: 80vh;
+                margin: auto;
+                margin-top: 10vh;
+            }
+        </style>
+        <script type="text/javascript">
+            var ws = new WebSocket("ws://localhost:10001/websocket");
+            ws.onopen = function () {
+                ws.send("Hello, world");
+            };
+            ws.onmessage = function (evt) {
+                alert(evt.data);
+            };
+        </script>
+    </head>
+
+    <body>
+        <div id='ground1' class="merida blue cg-wrap"></div>
+    </body>
+    
+    <script src="static/lib/chess.js"></script>
+    <script src="static/lib/fairychess.js"></script>
+    <script src="static/lib/chessground.js"></script>
+    <script src="static/lib/util.js"></script>
+    <script src="static/app.js"></script>
+</html>

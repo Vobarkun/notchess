@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html>
+<link rel="icon" type="image/png" href="https://lichess1.org/assets/logo/lichess-favicon-32.png" />
+
+<head>
+    <meta charset="utf-8">
+    <title>Not Chess</title>
+    <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.5.1/jquery.min.js"></script>
+
+    {% assets output="packed.js", "lib/chessground.js" %}
+    <script type="text/javascript" src="{{ ASSET_URL }}"></script>
+    {% endassets %} {% assets output="packed.css", "chessground.css", "theme.css", "style.css" %}
+    <link rel="stylesheet" href="{{ ASSET_URL }}"> {% endassets %}
+</head>
+
+<body>
+    <div class="container">
+        <div class="under">
+            <div id="nameThem" class="button disabled">Fabulous Fides</div>
+        </div>
+        <div class="board-container">
+            <div id='ground1' class="merida blue cg-wrap"></div>
+        </div>
+        <div class="under">
+            <div id="nameUs" class="button disabled">Fabulous Fides</div>
+            <div id="result" class="button"></div>
+            <div id="newgame" class="button" onclick="newgame()">New Game</div>
+            <div class="select-box">
+                <select id="armies" class="base-button" onchange="sendArmy()">
+                    <option value="Fabulous Fides">Fabulous Fides</option>
+                </select>
+            </div>
+            <div id="redo" class="button" onclick="undo(-1)">ᐳ</div>
+            <div id="undo" class="button" onclick="undo(1)">ᐸ</div>
+        </div>
+    </div>
+</body>
+
+<script src="{{ url_for('static', filename='app.js') }}"></script>
+
+</html>
