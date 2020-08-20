@@ -9,6 +9,7 @@
     text-shadow: 0px 1px 0px #3d768a;
     display: inline-block;
     user-select: none;
+    height: 40px;
 }
 
 .base-button:hover {
@@ -27,6 +28,7 @@
     text-shadow: 0px 1px 0px #3d768a;
     margin-right: 10px;
     user-select: none;
+    height: 20px;
 }
 
 button:not(.disabled) {
@@ -93,7 +95,7 @@ body {
 }
 
 #armies {
-    padding: 9px 19px;
+    padding: 10px 19px;
     width: 15em;
     border: none;
     -webkit-appearance: none;
@@ -108,7 +110,7 @@ body {
 .select-box::after {
     width: 10;
     position: absolute;
-    top: -24%;
+    top: -12%;
     right: 12px;
     font-size: 20pt;
     content: "⌄";

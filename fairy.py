@@ -5,8 +5,9 @@ from enum import Enum
 import math
 import random
 
-startingFen = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
+from timeit import default_timer as timer
 
+startingFen = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
 
 def symmetrize(offset, offset2 = None):
     if offset2 is None:
@@ -23,6 +24,14 @@ def leftright(offsets):
 def topbottom(offsets):
     return list(set(offsets + [(o[0], -o[1]) for o in offsets]))
 
+def tb(i, j):
+    return topbottom([(i, j)])
+
+def lr(i, j):
+    return leftright([(i, j)])
+
+def lrtb(i, j):
+    return leftright(topbottom([(i, j)]))
 
 def rank(n, color):
     if color == Color.white:
@@ -100,43 +109,45 @@ class Square():
 
 class MoveGen:
     @staticmethod
+    def base(self, orig, board, nrec = 0, dest = None, translate = True, attack = True, enpassant = False):
+        if dest is None:
+            return
+        if board[dest].color == self.color.opp() and attack:
+            yield Move(orig, dest, capture = True)
+        elif board[dest].isempty():
+            if enpassant and attack and board.epsquare == dest:
+                yield Move(orig, dest, capture = dest + epoffset(self.color))
+            elif translate:
+                yield Move(orig, dest)
+
+    @staticmethod
     def jump(offsets, translate = True, attack = True, enpassant = False, cylindrical = False):
         def generator(self, orig, board, nrec = 0):
             for offset in offsets:
                 offset = self.color.orientOffset(offset)
                 dest = orig + offset
                 if cylindrical:
-                    dest = Square(dest.f % 8, dest.r)
-                if board[dest].color == self.color.opp():
-                    if attack:
-                        yield Move(orig, dest, capture = True)
-                elif board[dest].isempty():
-                    if translate:
-                        yield Move(orig, dest)
-                    elif enpassant and board.epsquare == dest:
-                        yield Move(orig, dest, capture = dest + epoffset(self.color))
+                    dest.f %= 8
+                yield from MoveGen.base(self, orig, board, nrec, dest, translate, attack, enpassant)
         return generator
 
     @staticmethod
-    def slide(offsets, translate = True, attack = True, enpassant = False, dist = 100, mod = 1, rem = 0, cylindrical = False):
+    def slide(offsets, translate = True, attack = True, enpassant = False, dist = 100, mod = 1, rem = 0, cylindrical = False, spacious = False, njumps = 0):
         def generator(self, orig, board, nrec = 0):
             for offset in offsets:
+                jumpsleft = njumps
                 offset = self.color.orientOffset(offset)
                 dest = orig
                 for i in range(1, dist + 1):
                     dest += offset
                     if cylindrical:
-                        dest = Square(dest.f % 8, dest.r)
-                    if attack and board[dest].color == self.color.opp() and i % mod == rem:
-                        yield Move(orig, dest, capture = True)
+                        dest.f %= 8
+                    if not (spacious and board[dest + offset].color in [Color.white, Color.black]) or jumpsleft <= 0 and i % mod == rem:
+                        yield from MoveGen.base(self, orig, board, nrec, dest, translate, attack, enpassant)
                     if not board[dest].isempty():
-                        break
-                    if i % mod == rem:
-                        if enpassant and attack and board.epsquare == dest:
-                            yield Move(orig, dest, capture = dest + epoffset(self.color))
-                        elif translate:
-                            yield Move(orig, dest)
-
+                        if jumpsleft <= 0:
+                            break
+                        jumpsleft -= 1
         return generator
 
     @staticmethod
@@ -168,22 +179,24 @@ class MoveGen:
         return generator
 
     @staticmethod
-    def bigpawn():
+    def bigpawn(offsets = [(0, 1)]):
         def generator(self, orig, board, nrec = 0):
-            offset = (0, 1)
-            if self.color == Color.black:
-                offset = (offset[0], -offset[1])
-            if orig.r in [1, 6]:
-                epsquare = orig + offset
-                if board[epsquare].isempty():
-                    dest = orig + offset + offset
-                    if board[dest].isempty():
-                        yield Move(orig, dest)
+            for offset in offsets:
+                if self.color == Color.black:
+                    offset = (offset[0], -offset[1])
+                if orig.r in [1, 6]:
+                    epsquare = orig + offset
+                    if board[epsquare].isempty():
+                        dest = orig + offset + offset
+                        if board[dest].isempty():
+                            yield Move(orig, dest)
         return generator
 
     @staticmethod
     def castle(name = "R"):
         def generator(self, orig, board, nrec = 0):
+            if nrec > 0:
+                return
             if self.nmoves == 0:
                 for square in board.squares():
                     target = board[square]
@@ -224,15 +237,7 @@ class MoveGen:
                     offset = square - orig
                     gcd = math.gcd(*offset)
                     dest = orig + offset + (offset[0] // gcd, offset[1] // gcd)
-                    if board[dest].color == self.color.opp():
-                        if attack:
-                            yield Move(orig, dest, capture = True)
-                    elif board[dest].isempty():
-                        if translate:
-                            yield Move(orig, dest)
-                        elif enpassant and board.epsquare == dest:
-                            epoffset = (0, -1) if self.color == Color.white else (0, 1)
-                            yield Move(orig, dest, capture = dest + epoffset)
+                    yield from MoveGen.base(self, orig, board, nrec, dest, translate, attack, enpassant)
         return generator
 
     @staticmethod
@@ -245,35 +250,10 @@ class MoveGen:
         return generator
 
     @staticmethod
-    def offset(offsets, gen, translate = True, attack = True, enpassant = False):
-        def generator(self, orig, board, nrec = 0):
-            for offset in offsets:
-                offset = self.color.orientOffset(offset)
-                dest = orig + offset
-                if board[dest].color == self.color.opp():
-                    if attack:
-                        yield Move(orig, dest, capture = True)
-                elif board[dest].isempty():
-                    if translate:
-                        yield Move(orig, dest)
-                    elif enpassant and board.epsquare == dest:
-                        epoffset = (0, -1) if self.color == Color.white else (0, 1)
-                        yield Move(orig, dest, capture = dest + epoffset)
-                    for move in gen(self, orig + offset, board):
-                        move.orig = orig
-                        yield move
-
-        return generator
-
-    @staticmethod
     def compose(gen1, gen2):
-        if type(gen1) is not list:
-            gen1 = [gen1]
-        if type(gen2) is not list:
-            gen2 = [gen2]
         def generator(self, orig, board, nrec = 0):
-            for g1 in gen1:
-                for g2 in gen2:
+            for g1 in gen1 if type(gen1) is list else [gen1]:
+                for g2 in gen2 if type(gen2) is list else [gen2]:
                     for move2 in g2(self, orig, board):
                         yield move2
                         if not move2.capture:
@@ -286,8 +266,7 @@ class MoveGen:
         def generator(self, orig, board, nrec = 0):
             for square in board.squares():
                 if board[square].color == self.color and distance(square, orig) <= d and square != orig and board[square].name.upper() in name:
-                    for move in gen(board[square], square, board):
-                        yield move
+                    yield from gen(board[square], square, board)
         return generator
 
     @staticmethod
@@ -299,8 +278,40 @@ class MoveGen:
                 if distance(square, orig) <= d and board[square].name != self.name:
                     if board[square].color == self.color or enemies: 
                         for gen in board[square].moveGenerators:
-                            for move in gen(self, orig, board, nrec = nrec + 1):
-                                yield move
+                            yield from gen(self, orig, board, nrec = nrec + 1)
+        return generator
+
+    @staticmethod
+    def inverseCapture(gen):
+        def generator(self, orig, board, nrec = 0):
+            if nrec == 0:
+                for square in board.squares():
+                    if board[square].color == self.color.opp():
+                        flag = False
+                        for g in board[square].moveGenerators:
+                            for move in g(self, orig, board, nrec = nrec + 1):
+                                if move.dest == square:
+                                    yield move
+                                    break
+                            else:
+                                continue
+                            break
+            for g in gen if type(gen) is list else [gen]:
+                for move in g(self, orig, board, nrec):
+                    if not move.capture or nrec > 0:
+                        yield move
+        return generator
+
+    @staticmethod
+    def halfling(gen):
+        def generator(self, orig, board, nrec = 0):
+            for g in gen if type(gen) is list else [gen]:
+                for move in g(self, orig, board, nrec):
+                    if (move.dest.r >= (move.orig.r - 1) / 2 and 
+                        move.dest.f >= (move.orig.f - 1) / 2 and 
+                        move.dest.r <= move.orig.r + (8 - move.orig.r) / 2 and 
+                        move.dest.f <= move.orig.f + (8 - move.orig.f) / 2):
+                        yield move
         return generator
 
 class Effects:
@@ -312,9 +323,7 @@ class Effects:
     @staticmethod
     def promote(self, move, board):
         if move.dest.r == rank(8, self.color):
-            piece = board.pieces["Q"]
-            piece.color = self.color
-            board[move.dest] = piece
+            board[move.dest] = deepcopy(board.pieces["Q" if self.color is Color.white else "q"])
 
     @staticmethod
     def rifle(self, move, board):
@@ -346,13 +355,12 @@ class Piece:
 
     def generateMoves(self, square, board, nrec = 0):
         for generator in self.moveGenerators:
-            for move in generator(self, square, board, nrec):
-                yield move
+            yield from generator(self, square, board, nrec)
 
     def onMove(self, square, board):
         for f in self.onmove:
-            f(self, square, board)
-    
+            f(self, square, board)        
+
     def isempty(self):
         return self.color == Color.empty
 
@@ -361,6 +369,11 @@ class Piece:
             return self.name.upper()
         else: 
             return self.name.lower()
+
+    def __deepcopy__(self, memo):
+        c = Piece(self.color, self.name, self.moveGenerators, self.onmove, self.isking)
+        c.nmoves = self.nmoves
+        return c
 
     @classmethod
     def defaults(cls):
@@ -400,7 +413,12 @@ bishop = [MoveGen.slide(symmetrize(1, 1))]
 rook = [MoveGen.slide(symmetrize(1, 0))]
 shortrook = [MoveGen.slide(symmetrize(1, 0), dist = 4)]
 knight = [MoveGen.jump(symmetrize(2, 1))]
+knightrider = [MoveGen.slide(symmetrize(2, 1))]
 trebuchet = [MoveGen.jump(symmetrize(3, 0))]
+barc = [MoveGen.jump(leftright([(2, 1), (1, -2)]))]
+barcSlider = [MoveGen.slide(leftright([(2, 1), (1, -2)]))]
+crab = [MoveGen.jump(leftright([(1, 2), (2, -1)]))]
+crabSlider = [MoveGen.slide(leftright([(1, 2), (2, -1)]))]
 
 armies = {
     "Fabulous Fides": {
@@ -467,6 +485,18 @@ armies = {
         "B": [MoveGen.slide(symmetrize(1, 1), cylindrical = True)],
         "Q": [MoveGen.jump(symmetrize(2, 1), cylindrical = True), MoveGen.slide(symmetrize(1, 0), cylindrical = True)]
     },
+    "Spacious Cannoneers": {
+        "R": [MoveGen.slide(symmetrize(1, 0), spacious = True, njumps = 1)],
+        "N": wazir + [MoveGen.jump(lrtb(1, 2))],
+        "B": [MoveGen.slide(symmetrize(1, 1), spacious = True, njumps = 1)],
+        "Q": [MoveGen.slide(symmetrize(1, 0) + symmetrize(1, 1), spacious = True, njumps = 1)]
+    },
+    "Halflings": {
+        "R": [MoveGen.halfling(rook + knightrider)],
+        "N": [MoveGen.halfling(knightrider)],
+        "B": dabbaba + [MoveGen.halfling(bishop)],
+        "Q": [MoveGen.halfling(rook + bishop + knightrider)]
+    },
     "DemiRifle": {
         "R": Piece(movegen = wazir + [MoveGen.jump([(0, 2)])], onmove = [Effects.rifle]),
         "N": Piece(movegen = [MoveGen.jump(leftright([(1, 2), ((2, -1))]))], onmove = [Effects.rifle]),
@@ -479,23 +509,40 @@ armies = {
         "B": [MoveGen.compose(bishop, bishop)],
         "Q": [MoveGen.compose(rook + bishop, rook + bishop)]
     },
+    "Berolina": {
+        "P": [MoveGen.jump([(1, 1), (-1, 1)], attack = False), MoveGen.jump([(0, 1)], translate = False, enpassant = True), MoveGen.bigpawn([(1, 1), (-1, 1)])]
+    },
     "Support": {
         "R": king + [MoveGen.support(1, MoveGen.slide(symmetrize(1, 0)), name = "P")],
         "N": king + [MoveGen.support(1, MoveGen.jump(symmetrize(2, 1)), name = "P")],
         "B": king + [MoveGen.support(1, MoveGen.slide(symmetrize(1, 1)), name = "P")],
         "Q": king + [MoveGen.support(1, MoveGen.slide(symmetrize(1, 0) + symmetrize(1, 1)), name = "P")]
+    },
+    "Inverse Capture": {
+        "R": [MoveGen.inverseCapture(rook)],
+        "N": [MoveGen.inverseCapture(knight)],
+        "B": [MoveGen.inverseCapture(bishop)],
+        "Q": [MoveGen.inverseCapture(bishop + rook)],
+        "K": Piece(Color.white, "K", [
+            MoveGen.inverseCapture(MoveGen.jump(symmetrize(1, 1) + symmetrize(1, 0))),
+            MoveGen.castle("R")
+        ], isking = True)
     }
 }
 
-def generateArmy(name):
+def generateArmy(name, color = Color.white):
     pieces = Piece.defaults()
     army = armies[name]
     for key in army:
+        name = key if color == Color.white else key.lower()
         if type(army[key]) is Piece:
             pieces[key] = deepcopy(army[key])
-            pieces[key].name = key
+            pieces[key].name = name
+            pieces[key].color = color
         else:
-            pieces[key] = Piece(name = key, movegen = army[key])
+            pieces[key] = Piece(color = color, name = name, movegen = army[key], onmove = pieces[key].onmove, isking = pieces[key].isking)
+    if color == Color.black:
+        pieces = {k.lower(): v for k, v in pieces.items()}
     return pieces
 
 
@@ -529,8 +576,7 @@ class Move:
             if type(self.capture) is Square:
                 yield self.capture
             if type(self.capture) is list:
-                for c in self.capture:
-                    yield c
+                yield from self.capture
 
     @classmethod
     def fromstring(cls, string):
@@ -539,7 +585,7 @@ class Move:
 
 class Board:
     def __init__(self, fen = startingFen, pieces = Piece.defaults()):
-        self.Board = [[Piece.empty() for i in range(8)] for j in range(8)]
+        self.board = [[Piece.empty() for i in range(8)] for j in range(8)]
         self.activeColor = Color.white
         self.castling = {Color.white: [True, True], Color.black: [True, True]}
         self.epsquare = None
@@ -558,11 +604,11 @@ class Board:
             white = random.choice(list(armies.keys()))
         if black is None:
             black = random.choice(list(armies.keys()))
-        piecesWhite = generateArmy(white)
-        piecesBlack = generateArmy(black)
+        piecesWhite = generateArmy(white, Color.white)
+        piecesBlack = generateArmy(black, Color.black)
         pieces = {
             **piecesWhite, 
-            **{k.lower(): v for k, v in piecesBlack.items()}
+            **piecesBlack
         }
         board = cls(pieces = pieces) 
         board.whiteArmy = white
@@ -571,12 +617,12 @@ class Board:
   
     def __getitem__(self, square: Square):
         if self.inbounds(square):
-            return self.Board[square.r][square.f]
+            return self.board[square.r][square.f]
         return Piece.wall()
 
     def __setitem__(self, square: Square, value: Piece):
         if self.inbounds(square):
-            self.Board[square.r][square.f] = value
+            self.board[square.r][square.f] = value
 
     def inbounds(self, square):
         if square.r < 0 or square.r > 7 or square.f < 0 or square.f > 7:
@@ -591,10 +637,10 @@ class Board:
             for j in range(8):
                 yield Square(i, j)
 
-    def generateMoves(self, color = None):
+    def generateMoves(self, color = None, orig = None):
         if color is None:
             color = self.activeColor
-        for move in self.generatePseudolegalMoves(color = color):
+        for move in self.generatePseudolegalMoves(color = color, orig = orig):
             for square in move.path:
                 c = deepcopy(self)
                 c[square] = c[move.orig]
@@ -604,16 +650,17 @@ class Board:
                     break
             else:
                 after = self.after(move)
+                after.isCheck()
                 if not after.isCheck():
                     yield move
 
-    def generatePseudolegalMoves(self, color = None):
+
+    def generatePseudolegalMoves(self, color = None, orig = None):
         if color is None:
             color = self.activeColor
-        for square in self.squares():
+        for square in self.squares() if orig is None else [orig]:
             if self[square].color == color:
-                for move in self[square].generateMoves(square, self):
-                    yield move
+                yield from self[square].generateMoves(square, self)
 
     def generateMoveDict(self):
         dests = collections.defaultdict(list)
@@ -625,7 +672,7 @@ class Board:
         if color is None:
             color = self.activeColor
         for move in self.generatePseudolegalMoves(color):
-            if move.dest == square or any([dest == square for dest in move.captures()]):
+            if any(dest == square for dest in move.captures()):
                 return True
         return False
 
@@ -633,7 +680,7 @@ class Board:
         orig = Square(orig)
         dest = Square(dest)
         best = Move(orig, dest)
-        for move in self.generateMoves():
+        for move in self.generateMoves(orig = orig):
             if move.orig == orig and move.dest == dest and len(move.sideeffects) >= len(best.sideeffects):
                 if move.capture or not best.capture:
                     best = move
@@ -654,6 +701,8 @@ class Board:
         self[move.dest] = piece
         piece.nmoves += 1
                 
+        piece.onMove(move, self)
+    
         if not move.isfree:
             self.epsquare = None
             self.halfmove += 1
@@ -662,7 +711,6 @@ class Board:
             self.activeColor = self.activeColor.opp()
             self.pushHistory()
         
-        piece.onMove(move, self)
 
     def goto(self, halfmove):
         self.halfmove = halfmove

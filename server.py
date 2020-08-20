@@ -57,9 +57,15 @@ class ChessApplication(WebSocketApplication):
         if message is None:
             return
         message = json.loads(message)
+        if message["msg_type"] == "hi":
+            return
+        print(message["msg_type"])
         if message["msg_type"] == "move":
-            move = self.board.makeMove(message["orig"], message["dest"])
-            self.broadcast_move(move)
+            if self.board[fairy.Square(message["orig"])].color == self.board.activeColor:
+                start = fairy.timer()
+                move = self.board.makeMove(message["orig"], message["dest"])
+                self.broadcast_move(move)
+                print(move, fairy.timer() - start)
         elif message["msg_type"] == "update_position":
             self.update_position(client)
         elif message["msg_type"] == "undo":
@@ -79,11 +85,8 @@ class ChessApplication(WebSocketApplication):
                 self.broadcast_position(clearLast = True)
                 for c in self.clients():
                     c.wantsNewGame = False
-        elif message["msg_type"] == "newrules":
-            ChessApplication.board = fairy.Board.fromArmy()
-            self.flipBoard()
-            self.broadcast({"msg_type": "newgame"})
-            self.broadcast_position()
+        else:
+            self.broadcast(message)
 
     def flipBoard(self):
         for client in self.clients():
@@ -147,7 +150,7 @@ def index():
     return render_template('index.html')
 
 WebSocketServer(
-    ('0.0.0.0', 8000),
+    ('localhost', 8000),
 
     Resource([
         ('^/websocket', ChessApplication),

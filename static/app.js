@@ -26,17 +26,22 @@ const ground = Chessground(document.getElementById("ground1"), {
     }
 });
 
-var ws = new WebSocket("ws://" + window.location.hostname + ":8000/websocket");
+var ws = new WebSocket("ws://" + window.location.hostname + "/websocket");
 
 ws.onopen = function() {
     ws.send(JSON.stringify({
         msg_type: 'update_position'
     }));
+    window.setInterval(function() {
+        ws.send(JSON.stringify({
+            msg_type: "hi"
+        }))
+    }, 5000);
 };
 
 ws.onmessage = function(event) {
     var data = $.parseJSON(event.data);
-    console.log(data)
+    // console.log(data)
 
     if (data.msg_type == "move") {
         ground.move(data.orig, data.dest);
@@ -71,6 +76,9 @@ ws.onmessage = function(event) {
         $("#nameUs").text(data.yourColor == "white" ? data.names.white : data.names.black)
         $("#nameThem").text(data.yourColor == "white" ? data.names.black : data.names.white)
     }
+    if (data.msg_type == "draw") {
+        ground.setShapes(data.shapes);
+    }
 };
 
 function onPlayerMove(ws) {
@@ -83,8 +91,18 @@ function onPlayerMove(ws) {
     };
 }
 
+function onDraw(ws) {
+    return shapes => {
+        ws.send(JSON.stringify({
+            msg_type: "draw",
+            shapes: shapes
+        }))
+    };
+}
+
 ground.set({
-    movable: { events: { after: onPlayerMove(ws) } }
+    movable: { events: { after: onPlayerMove(ws) } },
+    drawable: { onChange: onDraw(ws) }
 });
 
 function objToStrMap(obj) {
@@ -102,11 +120,6 @@ function newgame() {
     ground.set({ lastMove: [] })
 }
 
-function newrules() {
-    ws.send(JSON.stringify({
-        msg_type: "newrules"
-    }))
-}
 
 function sendArmy() {
     ws.send(JSON.stringify({
